@@ -6,12 +6,12 @@ import { Suspense } from "react";
 
 const StudioEditor = dynamic(() => import("@/components/editor"), {
   ssr: false,
-  loading: () => <div className="h-[70vh] flex items-center justify-center text-gray-500 font-display uppercase tracking-widest animate-pulse">Chargement de l'éditeur…</div>,
+  loading: () => <div className="h-[70vh] flex items-center justify-center text-slate-400 font-display uppercase tracking-widest animate-pulse">Chargement de l'éditeur…</div>,
 });
 
 export default function EditeurPage() {
   return (
-    <Suspense fallback={<div className="h-[70vh] flex items-center justify-center text-gray-500 animate-pulse">Chargement…</div>}>
+    <Suspense fallback={<div className="h-[70vh] flex items-center justify-center text-slate-400 animate-pulse">Chargement…</div>}>
       <EditeurInner />
     </Suspense>
   );
@@ -19,5 +19,5 @@ export default function EditeurPage() {
 
 function EditeurInner() {
   const params = useSearchParams();
-  return <StudioEditor initialId={params.get("id")} />;
+  return <StudioEditor initialId={params.get("id")} aiIncoming={params.get("ai") === "1"} />;
 }

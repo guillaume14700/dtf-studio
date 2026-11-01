@@ -1,8 +1,8 @@
 "use client";
 
-/* DTF Studio Pro — Éditeur de design (Fabric.js)
-   Repère : toutes les coordonnées objets sont en PIXELS DOCUMENT (300 DPI).
-   Le canvas viewport = doc * zoom, donc export multiplier = 1/zoom → PNG exact 300 DPI. */
+/* DTF Studio Pro — Éditeur de design (thème clair, Fabric.js)
+   Toutes les coordonnées objets sont en pixels document (300 DPI).
+   Viewport = doc * zoom, donc export multiplier = 1/zoom → PNG exact 300 DPI. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as fabric from "fabric";
@@ -32,7 +32,10 @@ const TOOLS: { key: Tool; icon: React.ReactNode; label: string }[] = [
 
 const BLENDS = ["source-over", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "difference"];
 
-export default function StudioEditor({ initialId }: { initialId?: string | null }) {
+const PANEL = "bg-white border border-slate-200 rounded-xl shadow-sm";
+const LABEL = "text-[10px] font-bold uppercase tracking-widest text-slate-400";
+
+export default function StudioEditor({ initialId, aiIncoming }: { initialId?: string | null; aiIncoming?: boolean | null }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fc = useRef<fabric.Canvas | null>(null);
@@ -53,7 +56,7 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
   const [tool, setTool] = useState<Tool>("select");
   const [zoom, setZoom] = useState(0.2);
   const [box, setBox] = useState({ w: 800, h: 560 });
-  const [fill, setFill] = useState("#ffffff");
+  const [fill, setFill] = useState("#1e293b");
   const [brushMm, setBrushMm] = useState(3);
   const [msg, setMsg] = useState("");
   const [designs, setDesigns] = useState<Design[]>([]);
@@ -61,9 +64,8 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
   const docW = mmToPx(widthMm);
   const docH = mmToPx(heightMm);
 
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3500); };
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
 
-  /* ---------- Historique ---------- */
   const snapshot = useCallback(() => {
     const c = fc.current;
     if (!c || restoring.current) return;
@@ -91,14 +93,32 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     if (hIndex.current < history.current.length - 1) { hIndex.current++; restore(history.current[hIndex.current]!); }
   }, [restore]);
 
-  /* ---------- Init canvas ---------- */
+  const toolRef = useRef<Tool>(tool);
+  const fillRef = useRef(fill);
+  const docRef = useRef({ w: docW, h: docH });
+  const brushMmRef = useRef(brushMm);
+  useEffect(() => { toolRef.current = tool; }, [tool]);
+  useEffect(() => { fillRef.current = fill; }, [fill]);
+  useEffect(() => { docRef.current = { w: docW, h: docH }; }, [docW, docH]);
+  useEffect(() => { brushMmRef.current = brushMm; }, [brushMm]);
+
+  const setToolState = (t: Tool) => {
+    setTool(t);
+    const c = fc.current;
+    if (!c) return;
+    c.isDrawingMode = t === "brush";
+    if (t === "brush") {
+      const b = new fabric.PencilBrush(c);
+      b.color = fillRef.current;
+      b.width = Math.max(2, mmToPx(brushMmRef.current));
+      c.freeDrawingBrush = b;
+    }
+    c.defaultCursor = t === "select" ? "default" : "crosshair";
+  };
+
   useEffect(() => {
     if (!canvasRef.current) return;
-    const c = new fabric.Canvas(canvasRef.current, {
-      backgroundColor: "rgba(0,0,0,0)",
-      preserveObjectStacking: true,
-      selection: true,
-    });
+    const c = new fabric.Canvas(canvasRef.current, { backgroundColor: "rgba(0,0,0,0)", preserveObjectStacking: true, selection: true });
     fc.current = c;
 
     c.on("object:added", () => { snapshot(); rerender(); });
@@ -124,8 +144,7 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
       if (t === "text") {
         obj = new fabric.Textbox("Votre texte", {
           left: p.x, top: p.y, fontFamily: "'Archivo Black', sans-serif",
-          fontSize: Math.round(docRef.current.w * 0.09), fill: fillV, width: docRef.current.w * 0.7,
-          name: "Texte",
+          fontSize: Math.round(docRef.current.w * 0.09), fill: fillV, width: docRef.current.w * 0.7, name: "Texte",
         } as Record<string, unknown>);
       } else if (t === "rect") {
         obj = new fabric.Rect({ left: p.x - docRef.current.w * 0.12, top: p.y - docRef.current.h * 0.08, width: docRef.current.w * 0.24, height: docRef.current.h * 0.16, fill: fillV, name: "Rectangle" } as Record<string, unknown>);
@@ -136,11 +155,7 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
       } else if (t === "line") {
         obj = new fabric.Line([p.x - docRef.current.w * 0.15, p.y, p.x + docRef.current.w * 0.15, p.y], { stroke: fillV, strokeWidth: Math.max(2, docRef.current.w * 0.006), name: "Ligne" } as Record<string, unknown>);
       }
-      if (obj) {
-        c.add(obj);
-        c.setActiveObject(obj);
-        setToolState("select");
-      }
+      if (obj) { c.add(obj); c.setActiveObject(obj); setToolState("select"); }
     });
 
     setReady(true);
@@ -149,34 +164,6 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* Refs pour le handler mouse:down (évite de recréer le canvas) */
-  const toolRef = useRef<Tool>(tool);
-  const fillRef = useRef(fill);
-  const docRef = useRef({ w: docW, h: docH });
-  useEffect(() => { toolRef.current = tool; }, [tool]);
-  useEffect(() => { fillRef.current = fill; }, [fill]);
-  useEffect(() => { docRef.current = { w: docW, h: docH }; }, [docW, docH]);
-  const setToolState = (t: Tool) => {
-    setTool(t);
-    const c = fc.current;
-    if (!c) return;
-    c.isDrawingMode = t === "brush";
-    if (t === "brush") {
-      const b = new fabric.PencilBrush(c);
-      b.color = fillRef.current;
-      b.width = Math.max(2, mmToPx(brushMmRef.current));
-      c.freeDrawingBrush = b;
-    }
-    c.defaultCursor = t === "select" ? "default" : "crosshair";
-  };
-  const brushMmRef = useRef(brushMm);
-  useEffect(() => {
-    brushMmRef.current = brushMm;
-    const c = fc.current;
-    if (c?.freeDrawingBrush) c.freeDrawingBrush.width = Math.max(2, mmToPx(brushMm));
-  }, [brushMm]);
-
-  /* ---------- Dimensions / zoom ---------- */
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -199,10 +186,36 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
   }, [box, docW, docH]);
   useEffect(() => { if (ready) fit(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ready, widthMm, heightMm]);
 
-  /* ---------- Chargement initial / design existant ---------- */
+  const addObjectFromDataUrl = useCallback((dataUrl: string, nm?: string) => {
+    const c = fc.current;
+    if (!c) return;
+    fabric.FabricImage.fromURL(dataUrl).then((img) => {
+      const scale = Math.min((docRef.current.w * 0.6) / (img.width ?? 1), (docRef.current.h * 0.6) / (img.height ?? 1), 1);
+      img.set({ left: docRef.current.w / 2, top: docRef.current.h / 2, originX: "center", originY: "center", scaleX: scale, scaleY: scale, name: nm ?? "Image" } as Record<string, unknown>);
+      c.add(img);
+      c.setActiveObject(img);
+      c.requestRenderAll();
+      rerender();
+    });
+  }, [rerender]);
+
   useEffect(() => {
     if (!ready) return;
     setDesigns(loadDesigns());
+    // Visuel venant du Générateur IA
+    if (aiIncoming) {
+      try {
+        const raw = localStorage.getItem("dtf-ai-incoming");
+        if (raw) {
+          const incoming = JSON.parse(raw) as { url: string; prompt: string };
+          addObjectFromDataUrl(incoming.url, "Visuel IA");
+          setName(incoming.prompt.slice(0, 40) || "Visuel IA");
+          localStorage.removeItem("dtf-ai-incoming");
+          flash("✨ Visuel IA ajouté au design");
+        }
+      } catch { /* ignore */ }
+      return;
+    }
     const d = getDesign(initialId ?? null);
     const c = fc.current;
     if (d && c) {
@@ -221,14 +234,13 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
-  /* ---------- Raccourcis clavier ---------- */
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const c = fc.current;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); doSave(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
       if (!c) return;
       const k = e.key.toLowerCase();
       if (k === "v") setToolState("select");
@@ -248,22 +260,13 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, undo, redo, name, widthMm, heightMm]);
 
-  /* ---------- Actions ---------- */
   const active = fc.current?.getActiveObject() ?? null;
   const objects = fc.current?.getObjects() ?? [];
-
-  function addObjectFromDataUrl(dataUrl: string) {
-    const c = fc.current;
-    if (!c) return;
-    fabric.FabricImage.fromURL(dataUrl).then((img) => {
-      const scale = Math.min((docRef.current.w * 0.6) / (img.width ?? 1), (docRef.current.h * 0.6) / (img.height ?? 1), 1);
-      img.set({ left: docRef.current.w / 2, top: docRef.current.h / 2, originX: "center", originY: "center", scaleX: scale, scaleY: scale, name: "Image" } as Record<string, unknown>);
-      c.add(img);
-      c.setActiveObject(img);
-      c.requestRenderAll();
-      rerender();
-    });
-  }
+  const sel = active;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anySel = sel ? (sel as unknown as Record<string, any>) : null;
+  const isImage = sel?.type === "image";
+  const isText = sel?.type === "textbox" || sel?.type === "i-text";
 
   async function doSave(): Promise<boolean> {
     const c = fc.current;
@@ -273,7 +276,7 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     const res = saveDesign({ id: idRef.current, name, updatedAt: Date.now(), widthMm, heightMm, thumb, json });
     if (!res.ok) { flash(`⚠️ ${res.error}`); return false; }
     setDesigns(loadDesigns());
-    flash("💾 Design enregistré sur ce poste");
+    flash("💾 Design enregistré sur cet appareil");
     return true;
   }
 
@@ -293,7 +296,6 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     const c = fc.current;
     if (!c) return;
     c.clear();
-    c.backgroundColor = "rgba(0,0,0,0)";
     idRef.current = newId();
     setName("Design sans titre");
     history.current = []; hIndex.current = -1;
@@ -324,7 +326,7 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     fc.current?.requestRenderAll();
     snapshot();
     rerender();
-    flash("Blanc supprimé (fond transparent)");
+    flash("Fond blanc supprimé — transparent prêt pour le DTF");
   }
 
   function setFilter(type: string, value?: number) {
@@ -364,73 +366,60 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
     String((o as unknown as Record<string, unknown>).name ?? "") ||
     ({ textbox: "Texte", iText: "Texte", rect: "Rectangle", ellipse: "Ellipse", triangle: "Triangle", line: "Ligne", path: "Tracé", image: "Image" }[o.type ?? ""] ?? `Objet ${i + 1}`);
 
-  const sel = active;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const anySel = sel ? (sel as unknown as Record<string, any>) : null;
-  const isImage = sel?.type === "image";
-  const isText = sel?.type === "textbox" || sel?.type === "i-text";
-
   return (
     <div className="h-[calc(100vh-105px)] flex flex-col gap-2">
       {/* Barre haute */}
-      <div className="flex items-center gap-2 flex-wrap bg-[#202128] border border-[#2e3038] rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 flex-wrap bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="bg-transparent border border-transparent hover:border-[#2e3038] focus:border-cyan-500 rounded px-2 py-1 text-sm font-bold text-white w-48 outline-none"
+          className="bg-transparent border border-transparent hover:border-slate-200 focus:border-indigo-500 rounded-lg px-2 py-1 text-sm font-bold text-slate-900 w-48 outline-none"
           aria-label="Nom du design"
         />
-        <select value={preset} onChange={(e) => applyPreset(e.target.value)} className="bg-[#17181d] border border-[#2e3038] rounded px-2 py-1.5 text-xs text-gray-300 outline-none">
+        <select value={preset} onChange={(e) => applyPreset(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-600 outline-none">
           {DOC_PRESETS.map((p) => <option key={p.label}>{p.label}</option>)}
         </select>
         <div className="flex items-center gap-1 text-xs">
-          <input type="number" min={10} max={1200} value={widthMm} onChange={(e) => { setWidthMm(Number(e.target.value) || 10); setPreset("Personnalisé"); }} className="w-16 bg-[#17181d] border border-[#2e3038] rounded px-1.5 py-1.5 text-gray-300 outline-none" aria-label="Largeur mm" />
-          <span className="text-gray-500">×</span>
-          <input type="number" min={10} max={2000} value={heightMm} onChange={(e) => { setHeightMm(Number(e.target.value) || 10); setPreset("Personnalisé"); }} className="w-16 bg-[#17181d] border border-[#2e3038] rounded px-1.5 py-1.5 text-gray-300 outline-none" aria-label="Hauteur mm" />
-          <span className="text-gray-500 font-mono ml-1">{docW}×{docH}px @300dpi</span>
+          <input type="number" min={10} max={1200} value={widthMm} onChange={(e) => { setWidthMm(Number(e.target.value) || 10); setPreset("Personnalisé"); }} className="w-16 bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-slate-700 outline-none" aria-label="Largeur mm" />
+          <span className="text-slate-400">×</span>
+          <input type="number" min={10} max={2000} value={heightMm} onChange={(e) => { setHeightMm(Number(e.target.value) || 10); setPreset("Personnalisé"); }} className="w-16 bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-slate-700 outline-none" aria-label="Hauteur mm" />
+          <span className="text-slate-400 font-mono ml-1">{docW}×{docH}px @300dpi</span>
         </div>
         <div className="flex-1" />
         <div className="flex items-center gap-1">
           <IconBtn onClick={undo} label="Annuler (Ctrl+Z)"><Undo2 size={16} /></IconBtn>
           <IconBtn onClick={redo} label="Rétablir (Ctrl+Maj+Z)"><Redo2 size={16} /></IconBtn>
-          <span className="w-px h-5 bg-[#2e3038] mx-1" />
+          <span className="w-px h-5 bg-slate-200 mx-1" />
           <IconBtn onClick={() => setZoom((z) => Math.max(0.02, z * 0.8))} label="Dézoomer"><ZoomOut size={16} /></IconBtn>
-          <span className="text-[11px] font-mono text-gray-400 w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <span className="text-[11px] font-mono text-slate-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
           <IconBtn onClick={() => setZoom((z) => Math.min(4, z * 1.25))} label="Zoomer"><ZoomIn size={16} /></IconBtn>
           <IconBtn onClick={fit} label="Ajuster à l'écran"><Maximize size={16} /></IconBtn>
-          <span className="w-px h-5 bg-[#2e3038] mx-1" />
+          <span className="w-px h-5 bg-slate-200 mx-1" />
           <IconBtn onClick={newDoc} label="Nouveau document"><FilePlus2 size={16} /></IconBtn>
-          <button onClick={() => void doSave()} className="inline-flex items-center gap-1.5 bg-white/8 hover:bg-white/15 border border-white/15 text-white text-xs font-bold px-3 py-2 rounded-md transition-colors cursor-pointer">
+          <button onClick={() => void doSave()} className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer">
             <Save size={14} /> Enregistrer
           </button>
-          <button onClick={() => void sendTo("mockup")} className="inline-flex items-center gap-1.5 bg-fuchsia-500/15 hover:bg-fuchsia-500/25 border border-fuchsia-500/40 text-fuchsia-300 text-xs font-bold px-3 py-2 rounded-md transition-colors cursor-pointer">
-            <Boxes size={14} /> Mockup 3D
+          <button onClick={() => void sendTo("mockup")} className="inline-flex items-center gap-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 text-xs font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer">
+            <Boxes size={14} /> Mockup
           </button>
-          <button onClick={() => void sendTo("rip")} className="inline-flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold px-3 py-2 rounded-md transition-colors cursor-pointer">
-            <Printer size={14} /> RIP
+          <button onClick={() => void sendTo("rip")} className="inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer">
+            <Printer size={14} /> Imprimer
           </button>
-          <button onClick={exportPNG} className="inline-flex items-center gap-1.5 bg-gradient-to-r from-cyan-500 to-cyan-400 hover:brightness-110 text-[#17181d] text-xs font-extrabold px-3.5 py-2 rounded-md transition-all cursor-pointer shadow-lg shadow-cyan-500/20">
+          <button onClick={exportPNG} className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold px-3.5 py-2 rounded-lg transition-all cursor-pointer shadow-lg shadow-indigo-600/20">
             <Download size={14} /> PNG 300 DPI
           </button>
         </div>
       </div>
 
-      {msg && <div className="text-xs font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded-md px-3 py-2">{msg}</div>}
+      {msg && <div className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">{msg}</div>}
 
       <div className="flex-1 flex gap-2 min-h-0">
         {/* Outils */}
-        <div className="w-12 shrink-0 bg-[#202128] border border-[#2e3038] rounded-lg py-2 flex flex-col items-center gap-1">
+        <div className="w-12 shrink-0 bg-white border border-slate-200 rounded-xl py-2 flex flex-col items-center gap-1 shadow-sm">
           {TOOLS.map((t) => (
-            <button
-              key={t.key}
-              title={t.label}
-              aria-label={t.label}
-              onClick={() => {
-                if (t.key === "image") { fileRef.current?.click(); return; }
-                setToolState(t.key);
-              }}
-              className={`w-9 h-9 rounded-md flex items-center justify-center transition-colors cursor-pointer ${tool === t.key ? "bg-cyan-500 text-[#17181d]" : "text-gray-400 hover:text-white hover:bg-white/8"}`}
-            >
+            <button key={t.key} title={t.label} aria-label={t.label}
+              onClick={() => { if (t.key === "image") { fileRef.current?.click(); return; } setToolState(t.key); }}
+              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${tool === t.key ? "bg-indigo-600 text-white shadow" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"}`}>
               {t.icon}
             </button>
           ))}
@@ -443,35 +432,35 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
             e.target.value = "";
           }} />
           <div className="flex-1" />
-          <div className="text-[9px] text-gray-600 font-bold uppercase text-center px-0.5 leading-tight">300 dpi</div>
+          <div className="text-[9px] text-slate-300 font-bold uppercase text-center px-0.5 leading-tight">300 dpi</div>
         </div>
 
         {/* Zone de dessin */}
-        <div ref={wrapRef} className="flex-1 min-w-0 overflow-auto rounded-lg border border-[#2e3038] bg-[#1b1c22] flex items-center justify-center p-3">
-          <div
-            className="shadow-2xl shadow-black/50 shrink-0"
-            style={{ backgroundImage: "conic-gradient(#2b2c34 0 25%, #232429 0 50%, #2b2c34 0 75%, #232429 0)", backgroundSize: "18px 18px" }}
-          >
+        <div ref={wrapRef} className="flex-1 min-w-0 overflow-auto rounded-xl border border-slate-200 bg-slate-100 flex items-center justify-center p-3">
+          <div className="shadow-xl shadow-slate-900/10 shrink-0 rounded-sm"
+            style={{ backgroundImage: "conic-gradient(#f7f8fa 0 25%, #e9ecf1 0 50%, #f7f8fa 0 75%, #e9ecf1 0)", backgroundSize: "18px 18px" }}>
             <canvas ref={canvasRef} />
           </div>
         </div>
 
         {/* Panneau droit */}
-        <div className="w-72 shrink-0 flex flex-col gap-2 overflow-y-auto">
-          {/* Couleur / pinceau */}
-          <Panel title="Couleur & pinceau">
+        <div className="w-72 shrink-0 flex flex-col gap-2 overflow-y-auto pr-0.5">
+          <div className={`${PANEL} p-3.5`}>
+            <p className={`${LABEL} mb-2`}>Couleur & pinceau</p>
             <div className="flex gap-1.5 items-center mb-2">
-              <input type="color" value={fill} onChange={(e) => { setFill(e.target.value); if (sel) setProp("fill", e.target.value); }} className="w-9 h-8 rounded cursor-pointer bg-transparent border border-[#2e3038]" aria-label="Couleur" />
+              <input type="color" value={fill} onChange={(e) => { setFill(e.target.value); if (sel) setProp("fill", e.target.value); }} className="w-9 h-8 rounded cursor-pointer bg-transparent border border-slate-200" aria-label="Couleur" />
               <div className="grid grid-cols-11 gap-0.5 flex-1">
                 {SWATCHES.map((s) => (
-                  <button key={s} onClick={() => { setFill(s); if (sel) setProp("fill", s); }} className="w-full aspect-square rounded-sm cursor-pointer hover:scale-110 transition-transform border border-white/10" style={{ background: s }} aria-label={`Couleur ${s}`} />
+                  <button key={s} onClick={() => { setFill(s); if (sel) setProp("fill", s); }} className="w-full aspect-square rounded-sm cursor-pointer hover:scale-110 transition-transform border border-black/10" style={{ background: s }} aria-label={`Couleur ${s}`} />
                 ))}
               </div>
             </div>
             {tool === "brush" && (
-              <label className="block text-[10px] uppercase font-bold text-gray-500">
+              <label className="block text-[10px] font-bold text-slate-500">
                 Taille du pinceau : {brushMm} mm
-                <input type="range" min={0.5} max={40} step={0.5} value={brushMm} onChange={(e) => setBrushMm(Number(e.target.value))} className="w-full accent-cyan-400" />
+                <input type="range" min={0.5} max={40} step={0.5} value={brushMm}
+                  onChange={(e) => { setBrushMm(Number(e.target.value)); if (fc.current?.freeDrawingBrush) fc.current.freeDrawingBrush.width = Math.max(2, mmToPx(Number(e.target.value))); }}
+                  className="w-full accent-indigo-600" />
               </label>
             )}
             {sel && (
@@ -480,38 +469,38 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
                 <SmallBtn onClick={() => { const o = sel; o.set({ top: docH / 2, originY: "center" } as never); o.setCoords(); fc.current?.requestRenderAll(); snapshot(); rerender(); }}><AlignCenterVertical size={13} /> Centrer V</SmallBtn>
               </div>
             )}
-          </Panel>
+          </div>
 
-          {/* Propriétés */}
           {sel ? (
-            <Panel title={`Propriétés — ${layerName(sel, objects.indexOf(sel))}`}>
-              <div className="space-y-2 text-xs">
+            <div className={`${PANEL} p-3.5`}>
+              <p className={`${LABEL} mb-2.5`}>Propriétés — {layerName(sel, objects.indexOf(sel))}</p>
+              <div className="space-y-2.5 text-xs">
                 <div className="grid grid-cols-2 gap-2">
                   <NumField label="Opacité %" min={0} max={100} value={Math.round((sel.opacity ?? 1) * 100)} onChange={(v) => setProp("opacity", v / 100)} />
                   <NumField label="Rotation °" min={-360} max={360} value={Math.round(sel.angle ?? 0)} onChange={(v) => setProp("angle", v)} />
                 </div>
                 {!isImage && (
                   <label className="block">
-                    <span className="text-[10px] uppercase font-bold text-gray-500">Remplissage</span>
-                    <input type="color" value={String(sel.fill ?? "#ffffff").startsWith("#") ? String(sel.fill) : "#ffffff"} onChange={(e) => setProp("fill", e.target.value)} className="w-full h-7 rounded cursor-pointer bg-transparent border border-[#2e3038]" />
+                    <span className={LABEL}>Remplissage</span>
+                    <input type="color" value={String(sel.fill ?? "#ffffff").startsWith("#") ? String(sel.fill) : "#ffffff"} onChange={(e) => setProp("fill", e.target.value)} className="w-full h-7 rounded cursor-pointer bg-transparent border border-slate-200" />
                   </label>
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
-                    <span className="text-[10px] uppercase font-bold text-gray-500">Contour</span>
-                    <input type="color" value={String(sel.stroke ?? "#000000").startsWith("#") ? String(sel.stroke) : "#000000"} onChange={(e) => setProp("stroke", e.target.value)} className="w-full h-7 rounded cursor-pointer bg-transparent border border-[#2e3038]" />
+                    <span className={LABEL}>Contour</span>
+                    <input type="color" value={String(sel.stroke ?? "#000000").startsWith("#") ? String(sel.stroke) : "#000000"} onChange={(e) => setProp("stroke", e.target.value)} className="w-full h-7 rounded cursor-pointer bg-transparent border border-slate-200" />
                   </label>
                   <NumField label="Épaisseur" min={0} max={100} value={Number(sel.strokeWidth ?? 0)} onChange={(v) => setProp("strokeWidth", v)} />
                 </div>
                 <label className="block">
-                  <span className="text-[10px] uppercase font-bold text-gray-500">Fusion (blend)</span>
-                  <select value={String(sel.globalCompositeOperation ?? "source-over")} onChange={(e) => setProp("globalCompositeOperation", e.target.value)} className="w-full bg-[#17181d] border border-[#2e3038] rounded px-2 py-1.5 text-gray-300 outline-none">
+                  <span className={LABEL}>Fusion (blend)</span>
+                  <select value={String(sel.globalCompositeOperation ?? "source-over")} onChange={(e) => setProp("globalCompositeOperation", e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 outline-none">
                     {BLENDS.map((b) => <option key={b}>{b}</option>)}
                   </select>
                 </label>
                 <div className="grid grid-cols-2 gap-1.5">
-                  <SmallBtn onClick={() => setProp("shadow", sel.shadow ? null : new fabric.Shadow({ color: "rgba(0,0,0,0.55)", blur: docW * 0.02, offsetX: docW * 0.006, offsetY: docW * 0.006 }))}>
-                    <Sparkles size={13} /> {sel.shadow ? "Retirer ombre" : "Ombre portée"}
+                  <SmallBtn onClick={() => setProp("shadow", sel.shadow ? null : new fabric.Shadow({ color: "rgba(15,23,42,0.4)", blur: docW * 0.02, offsetX: docW * 0.006, offsetY: docW * 0.006 }))}>
+                    <Sparkles size={13} /> {sel.shadow ? "Sans ombre" : "Ombre"}
                   </SmallBtn>
                   <SmallBtn onClick={() => {
                     const o = sel;
@@ -526,8 +515,8 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
                 {isText && anySel && (
                   <>
                     <label className="block">
-                      <span className="text-[10px] uppercase font-bold text-gray-500">Police</span>
-                      <select value={String(anySel.fontFamily ?? "")} onChange={(e) => setProp("fontFamily", e.target.value)} className="w-full bg-[#17181d] border border-[#2e3038] rounded px-2 py-1.5 text-gray-300 outline-none">
+                      <span className={LABEL}>Police</span>
+                      <select value={String(anySel.fontFamily ?? "")} onChange={(e) => setProp("fontFamily", e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 outline-none">
                         {DESIGN_FONTS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                       </select>
                     </label>
@@ -539,14 +528,14 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
                       <SmallBtn onClick={() => setProp("fontWeight", anySel.fontWeight === "bold" ? "normal" : "bold")}><span className="font-extrabold">B</span></SmallBtn>
                       <SmallBtn onClick={() => setProp("fontStyle", anySel.fontStyle === "italic" ? "normal" : "italic")}><span className="italic font-serif">I</span></SmallBtn>
                       <SmallBtn onClick={() => setProp("underline", !anySel.underline)}><span className="underline">U</span></SmallBtn>
-                      <SmallBtn onClick={() => setProp("textAlign", ["left", "center", "right"][((["left", "center", "right"].indexOf(String(anySel.textAlign)) + 1) % 3)])}><span className="text-[10px] font-bold">{String(anySel.textAlign ?? "left").slice(0, 4).toUpperCase()}</span></SmallBtn>
+                      <SmallBtn onClick={() => setProp("textAlign", ["left", "center", "right"][((["left", "center", "right"].indexOf(String(anySel.textAlign)) + 1) % 3)])}><span className="text-[10px] font-bold">{String(anySel.textAlign ?? "left").slice(0, 3).toUpperCase()}</span></SmallBtn>
                     </div>
                   </>
                 )}
 
                 {isImage && (
-                  <div className="space-y-2 pt-1 border-t border-[#2e3038]">
-                    <p className="text-[10px] uppercase font-bold text-gray-500">Retouches image</p>
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <p className={LABEL}>Retouches image</p>
                     {(["brightness", "contrast", "saturation", "blur"] as const).map((f) => (
                       <FilterSlider key={f} label={{ brightness: "Luminosité", contrast: "Contraste", saturation: "Saturation", blur: "Flou" }[f]} onChange={(v) => setFilter(f, v)} max={f === "blur" ? 1 : 1} step={f === "blur" ? 0.02 : 0.05} />
                     ))}
@@ -555,30 +544,29 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
                       <SmallBtn onClick={() => setFilter("sepia")}>Sépia</SmallBtn>
                       <SmallBtn onClick={() => setFilter("invert")}>Inverser</SmallBtn>
                     </div>
-                    <div>
-                      <SmallBtn onClick={() => removeWhite(sel as fabric.FabricImage, 235)}>
-                        <Sparkles size={13} /> Supprimer le fond blanc
-                      </SmallBtn>
-                      <p className="text-[10px] text-gray-500 mt-1">Rend le blanc transparent — indispensable pour le DTF sur textiles foncés.</p>
-                    </div>
+                    <SmallBtn onClick={() => removeWhite(sel as fabric.FabricImage, 235)}>
+                      <Sparkles size={13} /> Supprimer le fond blanc
+                    </SmallBtn>
                   </div>
                 )}
               </div>
-            </Panel>
+            </div>
           ) : (
-            <Panel title="Propriétés">
-              <p className="text-xs text-gray-500">Sélectionnez un objet (ou cliquez sur un outil puis sur la toile). Raccourcis : V sélection · T texte · R rectangle · E ellipse · L ligne · B pinceau · Suppr effacer.</p>
-            </Panel>
+            <div className={`${PANEL} p-3.5`}>
+              <p className={`${LABEL} mb-2`}>Propriétés</p>
+              <p className="text-xs text-slate-500 leading-relaxed">Sélectionnez un objet sur la toile. Raccourcis : V sélection · T texte · R rectangle · E ellipse · L ligne · B pinceau · Suppr effacer.</p>
+            </div>
           )}
 
-          {/* Calques */}
-          <Panel title={`Calques (${objects.length})`} className="flex-1 min-h-40">
+          <div className={`${PANEL} p-3.5 flex-1 min-h-40`}>
+            <p className={`${LABEL} mb-2`}>Calques ({objects.length})</p>
             <div className="space-y-1">
               {[...objects].reverse().map((o) => {
                 const i = objects.indexOf(o);
                 return (
-                  <div key={i} className={`flex items-center gap-1 rounded px-1.5 py-1 text-xs ${sel === o ? "bg-cyan-500/15 border border-cyan-500/40 text-white" : "border border-transparent text-gray-400 hover:bg-white/5"}`}>
-                    <button onClick={() => { fc.current?.setActiveObject(o); fc.current?.requestRenderAll(); rerender(); }} className="flex-1 min-w-0 text-left truncate cursor-pointer" onDoubleClick={() => { const n = window.prompt("Nom du calque", layerName(o, i)); if (n) { o.set("name", n as never); rerender(); } }}>
+                  <div key={i} className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs ${sel === o ? "bg-indigo-50 border border-indigo-200 text-slate-900" : "border border-transparent text-slate-500 hover:bg-slate-50"}`}>
+                    <button onClick={() => { fc.current?.setActiveObject(o); fc.current?.requestRenderAll(); rerender(); }} className="flex-1 min-w-0 text-left truncate cursor-pointer"
+                      onDoubleClick={() => { const n = window.prompt("Nom du calque", layerName(o, i)); if (n) { o.set("name", n as never); rerender(); } }}>
                       {layerName(o, i)}
                     </button>
                     <MiniBtn label={o.visible === false ? "Afficher" : "Masquer"} onClick={() => { o.set("visible", o.visible === false); fc.current?.requestRenderAll(); snapshot(); rerender(); }}>
@@ -593,13 +581,13 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
                   </div>
                 );
               })}
-              {objects.length === 0 && <p className="text-xs text-gray-600 px-1 py-2">Document vide — commencez par un texte ou importez une image.</p>}
+              {objects.length === 0 && <p className="text-xs text-slate-400 px-1 py-2">Document vide — commencez par un texte ou importez une image (ou passez par le Générateur IA).</p>}
             </div>
             {designs.length > 0 && (
-              <div className="mt-3 pt-2 border-t border-[#2e3038]">
-                <p className="text-[10px] uppercase font-bold text-gray-500 mb-1 flex items-center gap-1"><Layers size={11} /> Ouvrir un design</p>
+              <div className="mt-3 pt-2 border-t border-slate-100">
+                <p className={`${LABEL} mb-1 flex items-center gap-1`}><Layers size={11} /> Ouvrir un design</p>
                 <select
-                  className="w-full bg-[#17181d] border border-[#2e3038] rounded px-2 py-1.5 text-xs text-gray-300 outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 outline-none"
                   value=""
                   onChange={(e) => { if (e.target.value) window.location.href = `/editeur?id=${e.target.value}`; }}
                 >
@@ -608,34 +596,24 @@ export default function StudioEditor({ initialId }: { initialId?: string | null 
                 </select>
               </div>
             )}
-          </Panel>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------- Petits composants UI ---------- */
 function IconBtn({ children, onClick, label }: { children: React.ReactNode; onClick: () => void; label: string }) {
   return (
-    <button onClick={onClick} title={label} aria-label={label} className="w-8 h-8 rounded-md flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer">
+    <button onClick={onClick} title={label} aria-label={label} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer">
       {children}
     </button>
   );
 }
 
-function Panel({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-[#202128] border border-[#2e3038] rounded-lg p-3 ${className}`}>
-      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">{title}</p>
-      {children}
-    </div>
-  );
-}
-
 function SmallBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="inline-flex items-center justify-center gap-1 bg-white/6 hover:bg-white/12 border border-[#2e3038] rounded px-2 py-1.5 text-[11px] font-bold text-gray-300 transition-colors cursor-pointer">
+    <button onClick={onClick} className="inline-flex items-center justify-center gap-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-600 transition-colors cursor-pointer">
       {children}
     </button>
   );
@@ -643,7 +621,7 @@ function SmallBtn({ children, onClick }: { children: React.ReactNode; onClick: (
 
 function MiniBtn({ children, onClick, label }: { children: React.ReactNode; onClick: () => void; label: string }) {
   return (
-    <button onClick={onClick} title={label} aria-label={label} className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 cursor-pointer">
+    <button onClick={onClick} title={label} aria-label={label} className="p-1 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer">
       {children}
     </button>
   );
@@ -652,17 +630,17 @@ function MiniBtn({ children, onClick, label }: { children: React.ReactNode; onCl
 function NumField({ label, value, onChange, min, max }: { label: string; value: number; onChange: (v: number) => void; min: number; max: number }) {
   return (
     <label className="block">
-      <span className="text-[10px] uppercase font-bold text-gray-500">{label}</span>
-      <input type="number" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full bg-[#17181d] border border-[#2e3038] rounded px-2 py-1 text-gray-200 outline-none focus:border-cyan-500" />
+      <span className={LABEL}>{label}</span>
+      <input type="number" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 outline-none focus:border-indigo-500" />
     </label>
   );
 }
 
 function FilterSlider({ label, onChange, max, step }: { label: string; onChange: (v: number) => void; max: number; step: number }) {
   return (
-    <label className="block text-[10px] uppercase font-bold text-gray-500">
+    <label className="block text-[10px] font-bold text-slate-500">
       {label}
-      <input type="range" min={0} max={max} step={step} defaultValue={0} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-cyan-400" />
+      <input type="range" min={0} max={max} step={step} defaultValue={0} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-indigo-600" />
     </label>
   );
 }
